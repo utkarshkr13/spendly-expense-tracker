@@ -1,6 +1,6 @@
 # Nivo — Product Roadmap
 
-> Maintained by AI Tech Manager. Last updated: 2026-06-14 (Run 4).
+> Maintained by AI Tech Manager. Last updated: 2026-06-14 (Run 5).
 
 ## Shipped ✅
 
@@ -28,6 +28,9 @@
 | **Savings goal coaching** | **v4** | `SavingsGoalCard` — SVG ring + tips + inline-editable goal; Dashboard |
 | **detectTransfers date guard** | **v4** | `isNaN(date.getTime())` prevents NaN in days calc |
 | **Enter-key auth forms** | **v4** | Login, signup, 2FA, UPI rule input all submit on Enter |
+| **Monthly narrative summary** | **v5** | `generateMonthlyNarrative()` — 3-sentence template; Dashboard AI card |
+| **iOS SegmentedControl** | **v5** | Transactions type filter: All / Debits / Credits; Apple HIG pill style |
+| **Budget alert notifications** | **v5** | Browser Notification API; 90%/100% threshold; once-per-month per category |
 
 ## Backlog
 
@@ -35,24 +38,22 @@
 
 | ID | Feature | Rationale | Effort |
 |---|---|---|---|
-| R-05 | Monthly narrative summary | Template-first: fill {top_category}, {savings_rate} tokens in AI insight card on 1st–5th of month | S |
-| R-03 | Budget alert notifications (browser) | Browser Notification API when approaching/over budget; permission flow | S |
+| R-07 | Dark mode | System-preference aware; `prefers-color-scheme` + CSS vars | M |
+| R-08 | CSV / bank-statement import | Upload HDFC/ICICI CSV → parse → load txns | L |
 
 ### P1 — High value
 
 | ID | Feature | Rationale | Effort |
 |---|---|---|---|
-| R-07 | Dark mode | System-preference aware; `prefers-color-scheme` + CSS vars | M |
-| R-08 | CSV / bank-statement import | Upload HDFC/ICICI CSV → parse → load txns | L |
 | R-02 | Anomaly summary card | Add anomaly count + top anomaly on Dashboard / Insights | S |
+| R-10 | Split transactions | Mark ₹5000 Amazon order as ₹2k Electronics + ₹3k Household | M |
+| R-11 | Net worth trend | Line chart of monthly net worth | S |
+| R-13 | PWA / install prompt | `manifest.json` + service worker for home-screen install | M |
 
 ### P2 — Nice to have
 
 | ID | Feature | Rationale | Effort |
 |---|---|---|---|
 | R-09 | Chart animations | Smooth SVG transitions on load | S |
-| R-10 | Split transactions | Mark ₹5000 Amazon order as ₹2k Electronics + ₹3k Household | M |
-| R-11 | Net worth trend | Line chart of monthly net worth | S |
 | R-12 | Peer benchmarking | "You spend X% less on food than similar earners" — anonymised | L |
-| R-13 | PWA / install prompt | `manifest.json` + service worker for home-screen install | M |
 | R-14 | Multi-currency | Track USD/EUR expenses, convert to INR | M |

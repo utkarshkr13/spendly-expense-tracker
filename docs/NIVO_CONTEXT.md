@@ -1,6 +1,6 @@
 # Nivo — Living Architecture & Context
 
-> Auto-maintained by the AI Tech Manager. Updated every run. Last: 2026-06-14 (Run 2).
+> Auto-maintained by the AI Tech Manager. Updated every run. Last: 2026-06-14 (Run 5).
 
 ## What Is Nivo?
 
@@ -43,25 +43,33 @@ docs/
 User corrections via category dropdown set `catConf=100, catMethod='user'`.
 
 ### Recurring Subscription Detection (v3)
-`detectRecurring(enriched)` — groups non-transfer debits by merchant; flags pairs with ±12% amount and 25–37 day gap as recurring subscriptions. Returns `{merchant, amount, category, lastDate, count, monthlyTotal}[]`. Computed in Shell via `useMemo`, passed as `ctx.recurring`.
+`detectRecurring(enriched)` — groups non-transfer debits by merchant; flags pairs with ±12% amount and 25–37 day gap as recurring subscriptions.
 
 ### Anomaly Detection (v3)
-`detectAnomalies(txns)` — per merchant, computes median spend; flags txns >2× median as anomalous. Returns `Set<id>`. Passed as `ctx.anomalies`. Shown as `⚠️ high` badge in Transactions list.
+`detectAnomalies(txns)` — per merchant, computes median spend; flags txns >2× median as anomalous. Returns `Set<id>`. Shown as `⚠️ high` badge in Transactions list.
+
+### Monthly Narrative (v5)
+`generateMonthlyNarrative(enriched, budgets, byCat, income, totalSpend, pairs, dedupSaved)` — 3-sentence template: spend summary, budget health, savings rate coaching. Shown in Dashboard AI card.
 
 ### Spend Forecasting
-In `Insights` page — linear model: `projectedMonthEnd = (totalSpend / activeDays) * daysInMonth`. `activeDays` only counts days ≤ today.
+In `Insights` page — linear model: `projectedMonthEnd = (totalSpend / activeDays) * daysInMonth`.
+
+### Budget Alert Notifications (v5)
+In `Shell`: `useEffect` watches `[budgets, byCat, notifPerm]`. When `notifPerm === 'granted'`, fires `Notification` at 90%/100% budget threshold. Deduped per category per month via `nivo_budgetAlert_{cat}_{YYYY-MM}` in localStorage.
 
 ## State
 
 ```
-nivo__v         schema version (2)
-nivo_txns       Transaction[]
-nivo_rules      {[vpa]: category}
-nivo_confirmed  number[]  (transfer-pair IDs)
-nivo_budgets    {[category]: number}
-nivo_user       {name, email}
-nivo_twofa      boolean
-nivo_gmail      boolean
+nivo__v                schema version (2)
+nivo_txns              Transaction[]
+nivo_rules             {[vpa]: category}
+nivo_confirmed         number[]  (transfer-pair IDs)
+nivo_budgets           {[category]: number}
+nivo_user              {name, email}
+nivo_twofa             boolean
+nivo_gmail             boolean
+nivo_savingsGoal       number  (monthly savings target, default 20000)
+nivo_budgetAlert_*     boolean (per category per month, prevents repeat alerts)
 ```
 
 ## Transaction Schema
@@ -88,21 +96,22 @@ nivo_gmail      boolean
 
 | Page | Key component | Purpose |
 |---|---|---|
-| Dashboard | `Dashboard` | Stats, area chart, donut, budget bars, recent txns, subscriptions card |
-| Transactions | `Transactions` | Full list with search/filter, transfer review, anomaly badges, manual add |
+| Dashboard | `Dashboard` | Stats, area chart, donut, budget bars, recent txns, savings ring, subscriptions card, AI narrative |
+| Transactions | `Transactions` | SegmentedControl type filter + search/account/category selects, transfer review, anomaly badges, manual add |
 | Accounts | `Accounts` | Balance cards per account, HDFC dedup explainer |
 | Budgets | `Budgets` | Over-budget alert banner, per-category limit editing + progress bars |
-| Insights | `Insights` | Month-end forecast, top merchants, category bars, stats |
-| Settings | `Settings` | Profile, 2FA toggle, Gmail sync, UPI rules, data export / reset |
+| Insights | `Insights` | NL query bar, month-end forecast, top merchants, category bars, stats |
+| Settings | `Settings` | Profile, 2FA toggle, budget alert notifications, Gmail sync, UPI rules, data export / reset |
 
 ## Known Issues / Constraints
 
-- Live site title shows "Spendly" (old Vercel CDN cache); code title is correct "Nivo — Smart Expense Tracker". Will resolve after next Vercel deploy.
+- Live site title shows "Spendly" (old Vercel CDN cache); code title is correct "Nivo — Smart Expense Tracker". Will resolve after next Vercel re-deploy clears cache.
 - Charts are SVG-only — no animation yet (roadmap P2 R-09).
 - Account balances are hardcoded seed data — no real bank API.
 - 2FA demo accepts any 6 digits; production requires Supabase Auth MFA wiring.
-- Seed data extended with May 2026 entries in Run 2; existing users with localStorage v2 will not see them until "Reset demo data" in Settings.
-- Recurring detection requires ≥2 transactions with ~30-day gap — only fires with multi-month history.
+- Seed data has May 2026 entries; existing users with localStorage v2 won't see them until "Reset demo data" in Settings.
+- Recurring detection requires ≥2 transactions with ~30-day gap.
+- Budget notifications require the app tab to be open (foreground only). Background alerts need Web Push API (VAPID).
 
 ## Conventions
 
@@ -114,3 +123,4 @@ nivo_gmail      boolean
 - `INR(n)` safely handles `undefined`/`NaN` via `Math.round(n||0)`.
 - `useMemo` for all derived data (byCat, byDay, recurring, anomalies, enriched).
 - One `useMemo` call per derived value — keep Shell's computation section readable.
+- Use `SegmentedControl` for 2–4 mutually exclusive toggles; prefer over `<select>` when options fit in one row.

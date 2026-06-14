@@ -1,6 +1,6 @@
 # Nivo — Design System
 
-> Derived from Apple HIG, iOS 26 spirit. Figma MCP unavailable on first two runs — tokens defined manually. Future runs should pull from Figma variables when available.
+> Derived from Apple HIG, iOS 26 spirit. Figma MCP unavailable on runs 1–5 — tokens defined manually from HIG. Future runs should pull from Figma variables when available.
 
 ## Brand
 
@@ -60,11 +60,13 @@ slate   → text-slate-600   bg-slate-100  (counts, meta)
 | Card | `rounded-2xl` (16px) |
 | Nav item (active) | `rounded-xl` (12px) |
 | Input / select | `rounded-lg` (8px) |
+| Segmented control container | `rounded-xl` |
+| Segmented control button | `rounded-lg` |
 | Badge / chip | `rounded-full` |
 | Mini badge | `rounded` (4px) |
 | Logo | `rounded-xl` |
 
-## Shadows (Updated v3 — Apple Depth Tokens)
+## Shadows (Apple Depth Tokens)
 
 | Component | Shadow |
 |---|---|
@@ -74,22 +76,27 @@ slate   → text-slate-600   bg-slate-100  (counts, meta)
 | Active nav item | `shadow-sm` |
 | Gradient hero card | `shadow-lg` |
 | Modal overlay | `bg-black/30` |
+| Segmented active option | `shadow-sm ring-1 ring-black/[0.06]` |
 
-The two-stop layered shadow (close ambient + diffuse drop) mirrors Apple's UIKit card shadow spec — renders depth without the harsh cutout look of single-stop shadows.
+## Interaction
 
-## Interaction — iOS Press State (New v3)
-
+### iOS Press State
 ```css
-.btn-press {
-  transition: transform 0.1s ease, box-shadow 0.1s ease;
-}
-.btn-press:active {
-  transform: scale(0.97);
-}
+.btn-press { transition: transform 0.1s ease, box-shadow 0.1s ease; }
+.btn-press:active { transform: scale(0.97); }
 ```
 
-Applied to: all `<button>` elements, clickable `Card` wrapper (when `onClick` prop provided), nav items.
-Provides subtle tactile feedback matching iOS's "spring scale" press animation.
+### iOS Segmented Control (New v5)
+```css
+.seg-btn { transition: background 0.15s ease, color 0.15s ease, box-shadow 0.15s ease; }
+```
+
+Container: `flex bg-slate-100 rounded-xl p-1 gap-1`  
+Active option: `bg-white shadow-sm text-slate-800 ring-1 ring-black/[0.06]`  
+Inactive: `text-slate-500 hover:text-slate-700`
+
+Applied to: Transactions page type filter (All / Debits / Credits).  
+Convention: use `SegmentedControl` for any 2–4 mutually exclusive toggle; prefer over `<select>` when options fit in one row.
 
 ## Spacing
 
@@ -105,7 +112,7 @@ Provides subtle tactile feedback matching iOS's "spring scale" press animation.
   background: rgba(255, 255, 255, 0.82);
   backdrop-filter: saturate(180%) blur(20px);
   -webkit-backdrop-filter: saturate(180%) blur(20px);
-  border-color: rgba(203, 213, 225, 0.6); /* slate-300/60 */
+  border-color: rgba(203, 213, 225, 0.6);
 }
 ```
 
@@ -118,9 +125,10 @@ Applied to: sidebar (`<aside>`) and sticky header (`<header>`).
 | Toggle switch | Thumb slide | `transition-all` |
 | Nav item background | Color fade | `transition-colors` |
 | Budget / bar chart fill | Width reveal | `transition-all duration-500` |
-| Card on hover | Shadow depth | `transition: box-shadow 0.18s ease` (`.card-shadow`) |
-| Button / card press | Scale down | `transition: transform 0.1s ease` (`.btn-press`) |
-| Chart paths | ❌ (P2) | SVG SMIL planned |
+| Card on hover | Shadow depth | `transition: box-shadow 0.18s ease` |
+| Button / card press | Scale down | `transition: transform 0.1s ease` |
+| Segmented control | Color + shadow | `.seg-btn` — `0.15s ease` |
+| Savings ring | Dashoffset | `transition: stroke-dashoffset 0.5s ease` |
 
 ## Empty States
 
@@ -129,18 +137,31 @@ Applied to: sidebar (`<aside>`) and sticky header (`<header>`).
 - Donut with no spending: "No spending data yet" text placeholder
 - "Link another account": `border-dashed` card
 
+## Components
+
+### SavingsGoalCard (v4)
+- SVG ring: r=36, `strokeDasharray = 2πr`, `strokeDashoffset = circ*(1-pct/100)`
+- Color: emerald (on-track), indigo (behind)
+- Inline goal input: `border-b border-dashed border-indigo-300`
+
+### SegmentedControl (v5)
+- Props: `options: {value, label}[]`, `value`, `onChange`, `className`
+- Each button: `aria-pressed`, `aria-label`
+- No external deps — pure Tailwind + inline transition
+
 ## Accessibility
 
 - Minimum tap target: 44×44px (iOS HIG). Nav buttons: `w-full py-2.5`.
 - Focus rings: `focus:ring-2 focus:ring-indigo-200` on all inputs.
-- Color not used as sole indicator — badges + text labels always accompany color.
+- Color not sole indicator — badges + text labels always accompany color.
 - `aria-label` on all interactive elements.
 - `aria-current="page"` on active nav item.
 - `role="alert"` on error messages.
+- `aria-pressed` + `aria-label` on SegmentedControl buttons.
 
 ## Figma Reference
 
-Figma MCP was unavailable on runs 1–2 (2026-06-14). When available, pull:
+Figma MCP unavailable on runs 1–5 (2026-06-14). When available, pull:
 - Variable sets → update color tokens above
 - Component library → align Card/Button shapes
 - Screenshot of any new screen → derive spacing/type from it

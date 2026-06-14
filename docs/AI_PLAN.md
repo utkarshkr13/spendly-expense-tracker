@@ -39,6 +39,35 @@ Use `text-embedding-3-small` to embed merchant name, find nearest centroid in pr
 
 ---
 
+## (b) Monthly Narrative Summary ✅ SHIPPED (client) — Run 5
+
+**Status**: v5 — client-side template engine live.
+
+**What's live (Dashboard — AI insight card):**
+- `generateMonthlyNarrative(enriched, budgets, byCat, income, totalSpend, pairs, dedupSaved)`
+- **3-sentence structure**:
+  1. Spend total + top category % + dedup note (transfers excluded)
+  2. Budget health: over-budget categories named, or within-budget praise
+  3. Savings rate coaching: celebrate ≥20%, nudge 1–19%, alert if negative
+- Badge updated: `step b · narrative` sub-label on Dashboard AI card
+- Replaces previous static one-liner
+
+**Template tokens filled:**
+- `{top_category}` → `byCat[0].name` + `topCatPct`
+- `{savings_rate}` → `Math.round((income - totalSpend) / income * 100)`
+- `{vs_budget}` → `overBudget.map(([c]) => c).join(' & ')` or praise
+- `{dedup_note}` → `pairs.length` internal transfers excluded
+
+**Production upgrade path:**
+```
+POST /functions/v1/narrative
+{ history: MonthlySnapshot[], budgets: Budget[], currentMonth: MonthSummary }
+→ { narrative: string }  // Claude Haiku generates personalised paragraph
+```
+With 3-month rolling history, peer-benchmark percentiles, and merchant-level insight ("your Swiggy spend jumped 40% vs last month").
+
+---
+
 ## (c) Spend Forecasting ✅ SHIPPED (client)
 
 **Status**: v2 — linear projection live.
@@ -98,16 +127,8 @@ Push notification when price changes.
 **Status**: v4 — client-side goal ring + coaching tips live.
 
 **What's live (Dashboard — Savings Goal card):**
-- `SavingsGoalCard` component: SVG circular progress ring (Apple Watch style)
-- `actual = max(0, income - totalSpend)` for current month
-- `pct = min(100, round(actual / goal * 100))`
-- Ring color: emerald (≥ goal) / indigo (< goal)
-- Inline-editable goal (number input, dashed border, indigo text)
-- **Context-aware tips**: 2 coaching lines that change based on on-track vs behind
-  - On-track: celebrate + suggest FD/liquid fund
-  - Behind: reduce discretionary spend + pay-yourself-first auto-transfer
-- Persisted: `nivo_savingsGoal` in localStorage, default ₹20,000/month
-- `isNaN(dash)` guard on `strokeDashoffset` prevents broken ring on invalid goal
+- `SavingsGoalCard`: SVG circular progress ring, inline-editable goal, context-aware tips
+- `isNaN(dash)` guard on `strokeDashoffset`
 
 **Production upgrade path:**
 ```
@@ -115,7 +136,6 @@ POST /functions/v1/savings-coach
 { history: MonthlySnapshot[], goal: number, currentMonth: MonthSummary }
 → { tip: string, projectedGoalDate: date, suggestedCuts: {category, amount}[] }
 ```
-Claude Haiku generates personalized tips from 3-month spending history. Browser Push Notification when monthly goal is achieved for the first time.
 
 ---
 
@@ -124,19 +144,8 @@ Claude Haiku generates personalized tips from 3-month spending history. Browser 
 **Status**: v4 — client-side heuristic parser live.
 
 **What's live (Insights page — Ask Nivo bar):**
-- `parseNLQuery(q, enriched)` function
-- **Period extraction**: `this month` / `last 7 days` / `last month` / `today` / `all time`
-- **Category extraction**: matches any entry in CATS array (case-insensitive)
-- **Intent detection** (5 types):
-  - `how much / total / spent / spend` → sum of matching txns
-  - `how many / count / number` → count of matching txns
-  - `biggest / largest / most expensive / highest` → top single txn
-  - `average / avg / mean` → mean amount
-  - `income / earn / salary` → total credits categorized as Income
-- Fallback: friendly error message with example queries
-- Enter key submits query
-- Result shown in violet card below input
-- Example queries in placeholder text
+- `parseNLQuery(q, enriched)` — 5 intents × 4 periods × all categories
+- Enter key submits; result in violet card
 
 **Production upgrade path:**
 ```
@@ -144,20 +153,30 @@ POST /functions/v1/nlquery
 { q: string, txns: Transaction[], context: UserContext }
 → { answer: string, txnIds: string[], chartData?: ChartPoint[] }
 ```
-Claude Haiku with structured tool calling: `filter_transactions`, `compute_aggregate`, `format_answer`. Handles complex queries: "Compare my Food spend this month vs last month" or "Which day did I spend the most last week?"
+Claude Haiku with structured tool calling.
 
 ---
 
-## (b) Monthly Narrative Summary — PLANNED (next)
+## (h) Bank-Email Parsing Templates — PLANNED (next)
 
-**Target:** On the 1st–5th of each month, generate a 3-sentence paragraph in the AI insight card:
-*"You spent ₹47,200 in May — ₹3,000 under budget. Food was your biggest category at 28%. Compared to April, Travel jumped by ₹8,500 due to your MakeMyTrip booking."*
+**Target:** Parse common Indian bank SMS / email formats (HDFC, ICICI, SBI, Axis) into transactions.
 
 **Implementation plan (next run):**
-1. Client-side template engine: fill `{top_category}`, `{savings_rate}`, `{vs_budget}`, `{biggest_change}` tokens
-2. Show in Dashboard AI insight card when `dayOfMonth <= 5`
-3. Store last month's snapshot in `nivo_last_month_snapshot` on month-end
-4. Production: `POST /functions/v1/narrative` → Claude Haiku generates paragraph
+1. Define regex templates per bank for debit/credit SMS patterns
+2. `parseHDFCSMS(text)`, `parseICICISMS(text)` → `{amount, merchant, date, type}`
+3. Surface in Settings as "SMS import" paste-box
+4. Production: Gmail API read-only → extract bank emails → parse → import
+
+---
+
+## (i) Budget Recommendations — PLANNED
+
+**Target:** Suggest optimal budget limits based on historical spend patterns.
+
+**Implementation plan:**
+1. Client-side: compute 3-month rolling avg per category → suggest `avg * 1.1` as limit
+2. Show "Suggested limit" chip in Budgets page with one-click accept
+3. Production: Claude Haiku with full history → personalized recommendations with rationale
 
 ---
 
@@ -166,11 +185,11 @@ Claude Haiku with structured tool calling: `filter_transactions`, `compute_aggre
 | Feature | Client heuristic | LLM/edge version |
 |---|---|---|
 | (a) Categorisation | ✅ shipped v2 | Planned — embeddings |
-| (b) Narrative | ❌ | Planned next run |
+| (b) Narrative | ✅ shipped v5 | Planned — Haiku + 3-month history |
 | (c) Forecast | ✅ shipped v2 | Planned — Holt-Winters |
 | (d) Anomaly | ✅ shipped v3 | Planned — IQR + push |
 | (e) Recurring | ✅ shipped v3 | Planned — 90-day window + push |
 | (f) Goal coaching | ✅ shipped v4 | Planned — Haiku + push |
 | (g) NL query | ✅ shipped v4 | Planned — Haiku + tool calling |
-| (h) Email parsing | ❌ | Planned |
-| (i) Budget recs | ❌ | Planned |
+| (h) Email parsing | ❌ planned next | Planned — Gmail API + templates |
+| (i) Budget recs | ❌ planned | Planned — Haiku + 3-month avg |

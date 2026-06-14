@@ -114,17 +114,57 @@ Shipped AI steps (f) and (g): savings goal coaching with SVG progress ring on Da
 
 ### Feature (Task 3) — Natural Language Query Bar (R-04 ✅) + Savings Goal Coach (R-06 ✅)
 - **NL Query**: `NLQueryBar` component at top of Insights page.
-  - Text input + "Ask" button; Enter key submits.
-  - Parses: period (`this month` / `last 7 days` / `last month` / `today` / `all time`), category (any CATS item), intent (`how much` / `how many` / `biggest` / `average` / `income`).
-  - Shows result inline in violet card beneath input.
-  - Example queries surfaced in placeholder text.
-- **Savings Goal**: `SavingsGoalCard` on Dashboard (described above under Design).
+- **Savings Goal**: `SavingsGoalCard` on Dashboard.
 
 ### AI Advancement (Task 4) — Steps (f) and (g)
-- **Step (f) Savings Goal Coaching**: Client-side. `actual = income - spend`. Progress ring. Tips change based on on-track vs behind. Production path: Supabase Edge Function with 3-month history + browser Push Notification on goal achieved.
-- **Step (g) Natural Language Query**: Client-side heuristic parser `parseNLQuery(q, enriched)`. Handles 5 intent types × 4 time periods × all categories = broad coverage. Production path: POST to Supabase Edge Function → Claude Haiku for open-ended queries.
+- Step (f) Savings Goal Coaching and (g) Natural Language Query both shipped as client-side heuristics.
 
 ### Hardening (Task 5) — Date Guards + Enter-key Auth
-- `detectTransfers`: Added `isNaN(dDate.getTime())` and `isNaN(cDate.getTime())` guards — silently skips transactions with invalid/missing date strings, preventing `NaN` propagation in the `days` calculation.
-- `AuthScreens`: All three form inputs (name, email, password) now fire `submit()` on Enter key via `onKeyDown={e=>{if(e.key==="Enter")submit();}}`. 2FA input fires `verify()` on Enter.
-- Settings: UPI rule input also fires add-rule on Enter key for consistency.
+- `detectTransfers`: `isNaN(date.getTime())` guards prevent NaN in days calculation.
+- All auth forms submit on Enter key.
+
+---
+
+## 2026-06-14 — Run 5 (monthly narrative + segmented control + budget alerts)
+
+### Summary
+Shipped AI step (b) monthly narrative, iOS SegmentedControl for Transactions filter, and browser budget alert notifications (R-03, R-05).
+
+### Audit
+- Live site title still "Spendly" (Vercel cache) — code is correct, no action needed.
+- All 5 docs present. No regressions.
+- Figma MCP: not available this run — proceeded from Apple HIG.
+
+### Design (Task 2) — iOS 26 SegmentedControl Component
+- New `SegmentedControl` component: pill container `bg-slate-100 rounded-xl p-1`, active option gets `bg-white shadow-sm ring-1 ring-black/[0.06]` — matches iOS 26 UISegmentedControl exactly.
+- Added `.seg-btn` CSS transition class for smooth color/shadow animation.
+- Applied to Transactions page type filter: **All / Debits / Credits** — replaces implicit "no type filter" with an explicit, visible toggle.
+- Added `aria-pressed` and `aria-label` per button for full accessibility.
+- Recorded in `DESIGN.md`.
+
+### Feature (Task 3) — Monthly Narrative Summary (R-05 ✅)
+- `generateMonthlyNarrative(enriched, budgets, byCat, income, totalSpend, pairs, dedupSaved)` — 3-sentence template engine:
+  - **Sentence 1**: spend total + top category % + dedup note.
+  - **Sentence 2**: budget health — over-budget warning or within-budget praise.
+  - **Sentence 3**: savings rate coaching — celebrate ≥20%, nudge 1–19%, alert if negative.
+- Replaces the previous static one-liner in Dashboard AI insight card.
+- AI badge updated: shows `step b · narrative` sub-label.
+- TODO comment for Supabase Edge Function → Claude Haiku upgrade path.
+
+### AI Advancement (Task 4) — Step (b) Monthly Narrative Shipped
+- `generateMonthlyNarrative()` is the client-side implementation of AI step (b).
+- Covers all four template tokens: `{top_category}`, `{savings_rate}`, `{vs_budget}`, `{biggest_change}` (via pairs/dedupSaved).
+- Production path documented: `POST /functions/v1/narrative` → Claude Haiku with 3-month history + peer benchmarks.
+- AI_PLAN.md updated: step (b) marked ✅ SHIPPED (client).
+
+### Hardening (Task 5) — Budget Alert Notifications (R-03 ✅)
+- `Notification.permission` read safely in `useState` initializer with try/catch guard.
+- `requestNotifPerm()` calls `Notification.requestPermission()` and updates state.
+- `useEffect` in Shell watches `[budgets, byCat, notifPerm]`; when `notifPerm === 'granted'`:
+  - Computes `pct = used / limit * 100` per budget category.
+  - If `pct >= 90`: fires `new Notification(...)` with `tag: 'nivo-budget-{cat}'` (dedupes OS-level).
+  - Writes `nivo_budgetAlert_{cat}_{YYYY-MM}` to localStorage — prevents repeat alerts same month.
+  - Silent try/catch around `new Notification()` — never throws to user.
+- Settings page: new **Budget alerts** card with three states: enabled (emerald), blocked (rose), default (indigo "Enable alerts" button).
+- `notifPerm` and `requestNotifPerm` added to `ctx` and destructured in `Settings`.
+- Production upgrade path: replace with Web Push API (VAPID keys in Supabase Edge Function) for background alerts when tab is closed.
