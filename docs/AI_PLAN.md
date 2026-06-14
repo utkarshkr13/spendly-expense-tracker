@@ -53,6 +53,7 @@ Persist corrections in `nivo_learned_rules` (merchant → category map). After 2
 
 **What's live (Insights page):**
 - Linear model: `projectedMonthEnd = (totalSpend / activeDays) * daysInMonth`
+- `activeDays` uses only days ≤ today to avoid inflating the denominator with future days
 - Shows: projected total, progress bar (% of month elapsed), projected remaining spend
 - Labeled as heuristic in UI; TODO comment marks edge-function hookup point
 
@@ -66,26 +67,74 @@ Use exponential smoothing on weekly spend velocity (Holt-Winters if sufficient h
 
 ---
 
-## (b) Monthly Narrative Summary — PLANNED
+## (d) Anomaly Detection ✅ SHIPPED (client)
 
-**Target:** On the 1st of each month, generate a 3-sentence paragraph:  
+**Status**: v3 — median-based heuristic live.
+
+**What's live (Transactions page):**
+- `detectAnomalies(txns)` groups debits by merchant, computes median amount per merchant
+- Transactions where `amount > 2 × median` (and merchant has ≥2 txns) are flagged
+- Returns a `Set<id>` of anomalous transaction IDs
+- Transactions list shows `⚠️ high` orange badge on anomalous rows
+- `anomalies` computed with `useMemo` in Shell, passed through `ctx`
+
+**Production upgrade path:**
+```
+POST /functions/v1/anomaly
+{ txnId: string, merchantHistory: Transaction[] }
+→ { isAnomaly: boolean, zScore: number, alert: string }
+```
+Use rolling IQR (interquartile range) over 90-day window. Send browser Push Notification + in-app toast for real-time alerting. Store acknowledged anomalies in `nivo_anomaly_ack` localStorage key.
+
+---
+
+## (e) Recurring Subscription Detection ✅ SHIPPED (client)
+
+**Status**: v3 — ~30-day interval heuristic live.
+
+**What's live (Dashboard):**
+- `detectRecurring(txns)` groups non-transfer debits by merchant
+- Detects pairs of transactions with: same merchant, ±12% amount difference, 25–37 day interval
+- Returns array of `{merchant, amount, category, lastDate, count, monthlyTotal}`
+- Dashboard shows "🔁 Subscriptions detected" card with monthly total and per-subscription breakdown
+- Seed data includes May + June NETFLIX/SWIGGY entries for demo visibility
+
+**Production upgrade path:**
+```
+POST /functions/v1/subscriptions
+{ txns: Transaction[], lookbackDays: 90 }
+→ { subscriptions: [{merchant, amount, cycle: "monthly"|"annual", nextExpected: date, priceChanged: boolean}] }
+```
+Use sliding-window pattern matcher across 90-day history. Send push notification when price changes (e.g., Netflix raises from ₹1299 to ₹1499). Store subscription registry in `nivo_subscriptions` key for user review/dismissal.
+
+---
+
+## (b) Monthly Narrative Summary — PLANNED (next)
+
+**Target:** On the 1st of each month, generate a 3-sentence paragraph:
 *"You spent ₹47,200 in May — ₹3,000 under budget. Food was your biggest category at 28%. Compared to April, Travel jumped by ₹8,500 due to your MakeMyTrip booking."*
 
-**Implementation plan:**
-1. Client-side template engine (this run or next) — fill in {top_category}, {vs_last_month}, {savings_rate}
-2. Production: `POST /functions/v1/narrative` with monthly summary data → GPT-4o or claude-haiku-4-5 generates paragraph
+**Implementation plan (next run):**
+1. Client-side template engine: fill `{top_category}`, `{savings_rate}`, `{vs_budget}` tokens
+2. Show in Dashboard AI insight card when it's the 1st–5th of the month
+3. Production: `POST /functions/v1/narrative` → GPT-4o / claude-haiku-4-5 generates paragraph
 
 ---
 
-## (d) Anomaly Detection — PLANNED
+## (f) Savings-Goal Coaching — PLANNED
 
-Flag transactions >2× the median for that merchant in the last 90 days. Show orange warning badge in transaction list. Client-side median calculation is feasible without LLM.
+Set a goal (e.g., "Save ₹50,000 for Goa trip by August"). Track monthly delta. Client-side projection: "At current savings rate you'll reach your goal in 3.2 months." Show progress ring.
 
 ---
 
-## (e) Recurring Subscription Detection — PLANNED
+## (g) Natural-Language Query — PLANNED
 
-Group transactions by `merchant + approximate_amount` within ±5%. If pattern repeats with interval 28–31 days, mark as `isRecurring=true`. Show subscription summary card in Dashboard. Pure client-side heuristic.
+Parse "how much on food last week?" via regex intent extraction:
+- Extract time range ("last week", "in May", "today")
+- Extract category or merchant keyword
+- Run filter on txns, return total + list
+
+No LLM needed for basic intents. Ship NL query box in Insights page.
 
 ---
 
@@ -94,10 +143,10 @@ Group transactions by `merchant + approximate_amount` within ±5%. If pattern re
 | Feature | Client heuristic | LLM/edge version |
 |---|---|---|
 | (a) Categorisation | ✅ shipped v2 | Planned — embeddings |
-| (b) Narrative | ❌ | Planned next |
+| (b) Narrative | ❌ | Planned next run |
 | (c) Forecast | ✅ shipped v2 | Planned — Holt-Winters |
-| (d) Anomaly | ❌ | Planned (client first) |
-| (e) Recurring | ❌ | Planned (client first) |
+| (d) Anomaly | ✅ shipped v3 | Planned — IQR + push |
+| (e) Recurring | ✅ shipped v3 | Planned — 90-day window + push |
 | (f) Goal coaching | ❌ | Planned |
 | (g) NL query | ❌ | Planned |
 | (h) Email parsing | ❌ | Planned |

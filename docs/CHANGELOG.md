@@ -4,65 +4,6 @@ Append-only. Each AI Tech Manager run appends a dated entry.
 
 ---
 
-## 2026-06-14 — Hotfix: Vercel Web Analytics + Speed Insights shim fix
-
-### Summary
-Added Vercel Web Analytics (visitor tracking) and completed Speed Insights integration by adding the missing `window.si` queue shim. Both use vanilla HTML CDN integration — no npm, no bundler required.
-
-### @vercel/analytics — why npm doesn't apply
-`@vercel/analytics/next` requires a Node.js bundler (Next.js/Vite/CRA). Nivo is a single `index.html` with React 18 UMD + Babel standalone. The correct integration for plain HTML is documented at https://vercel.com/docs/analytics/quickstart?framework=html:
-
-```html
-<!-- just before </body> -->
-<script>window.va = window.va || function(){(window.vaq = window.vaq || []).push(arguments);};</script>
-<script defer src="/_vercel/insights/script.js"></script>
-```
-
-### Speed Insights shim fix
-Previous commit was missing the `window.si` queue initializer. Added per docs:
-
-```html
-<script>window.si = window.si || function(){(window.siq = window.siq || []).push(arguments);};</script>
-<script defer src="/_vercel/speed-insights/script.js"></script>
-```
-
-The shim buffers any `window.si()` calls (e.g. `beforeSend` hooks) made before the async script loads.
-
-### What each script tracks
-- **Speed Insights** (`/_vercel/speed-insights/script.js`): Core Web Vitals — LCP, INP, CLS, TTFB, FCP
-- **Web Analytics** (`/_vercel/insights/script.js`): Page views, unique visitors, referrers, countries, devices
-
-### Action required
-Both must be enabled in the Vercel dashboard before data flows:
-1. Project → **Speed Insights** → Enable
-2. Project → **Analytics** → Enable
-
-Vercel auto-routes `/_vercel/speed-insights/*` and `/_vercel/insights/*` after enabling.
-
----
-
-## 2026-06-14 — Hotfix: Vercel Speed Insights
-
-### Summary
-Added Vercel Speed Insights instrumentation via the auto-injected CDN script. No npm, no build step required.
-
-### Why the npm package doesn't apply here
-`@vercel/speed-insights/next` and `@vercel/speed-insights/react` are Node.js ESM packages that require a bundler (Next.js / Vite / CRA). Nivo is a single `index.html` with React 18 UMD + Babel standalone — there is no build pipeline. The correct integration for any Vercel-deployed static site is:
-
-```html
-<!-- placed just before </body> -->
-<script defer src="/_vercel/speed-insights/script.js"></script>
-```
-
-Vercel injects and serves this file at that path for every deployment automatically. In local development the 404 is silent (defer + no error handler). No API key or config needed.
-
-### What this tracks
-- Core Web Vitals: LCP, FID/INP, CLS, TTFB, FCP
-- Visible in the Vercel project dashboard under Analytics → Speed Insights
-- Zero runtime overhead — `defer` ensures it loads after the React app
-
----
-
 ## 2026-06-14 — Run 1 (initial docs + v2 polish)
 
 ### Summary
@@ -112,3 +53,43 @@ First documented run. Created entire `docs/` vault from scratch. Delivered four 
 - `docs/AI_PLAN.md` — AI roadmap with implementation plans
 - `docs/CHANGELOG.md` — this file
 - `docs/DESIGN.md` — design system tokens
+
+---
+
+## 2026-06-14 — Run 2 (recurring detection + anomaly + card depth + Donut hardening)
+
+### Summary
+Four improvements shipped in one commit: refined card shadow depth system (design), recurring subscription detection (R-01 feature), anomaly detection flag in transaction list (AI step d+e), Donut chart hardened for empty/single-category edge cases.
+
+### Audit
+- Live site still returns old "Spendly" title (Vercel cache) — no fix needed, code is correct "Nivo — Smart Expense Tracker".
+- All 5 docs present and up to date.
+- Figma MCP: not available this run — proceeded from Apple HIG.
+- No regressions detected. `index.html` compiles cleanly (Babel standalone JSX).
+
+### Design (Task 2) — Refined Card Shadow System (Apple HIG Depth Tokens)
+- Replaced Tailwind `shadow-sm` on `Card` with `.card-shadow` CSS class: `box-shadow: 0 1px 3px rgba(0,0,0,0.05), 0 4px 14px rgba(0,0,0,0.05)`.
+- Hover state: `0 2px 6px rgba(0,0,0,0.08), 0 8px 22px rgba(0,0,0,0.07)` with `transition: box-shadow 0.18s ease`.
+- Added `.btn-press` CSS class: `transition: transform 0.1s ease; :active { transform: scale(0.97) }` — iOS tactile press feedback on all buttons and clickable cards.
+- Applied `btn-press` to: all `<button>` elements, clickable `Card` wrapper, nav items.
+- Updated Bars chart bars to use `transition-all duration-500` for smooth width transitions.
+- Recorded in `DESIGN.md`.
+
+### Feature (Task 3) — Recurring Subscription Detection (R-01 ✅)
+- New `detectRecurring(txns)` function: groups debits by merchant, detects any two payments within ±12% amount and 25–37 day interval → marks as recurring.
+- New "Subscriptions detected" card on Dashboard (bottom): shows each recurring merchant with monthly amount, category, detection count.
+- Shows total monthly subscription cost in header.
+- Seed data extended with May 2026 entries (NETFLIX ₹1299, SWIGGY ₹3100) so recurring detection fires for new users. Existing users: click "Reset demo data" in Settings to see it.
+- Production path documented: Supabase Edge Function with 90-day rolling window + push notification on price change.
+
+### AI Advancement (Task 4) — Anomaly Detection (AI step d) + Recurring (AI step e)
+- New `detectAnomalies(txns)` function: for each merchant with ≥2 transactions, computes median amount; flags any txn >2× median as anomalous. Returns a `Set<id>`.
+- Anomalous transactions now show an `⚠️ high` orange badge in the Transactions list merchant cell.
+- `recurring` and `anomalies` computed with `useMemo` in Shell, passed through `ctx` to all pages.
+- Both functions documented in `AI_PLAN.md` with production upgrade paths.
+
+### Hardening (Task 5) — Donut Chart
+- Added `const nd = data.filter(d => d.value > 0)` guard — empty data shows "No spending data yet" placeholder instead of broken SVG.
+- Single-category guard: when only one category, sweep uses `frac * 1.9999 * Math.PI` instead of full `2π` — prevents the SVG degenerate arc (start=end point) that rendered as blank.
+- `Math.max(0.001, frac)` guard on each slice to prevent zero-width arcs.
+- Budget page: added over-budget alert banner when any category exceeds limit (in-app notification, no browser API needed).

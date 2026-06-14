@@ -1,6 +1,6 @@
 # Nivo — Living Architecture & Context
 
-> Auto-maintained by the AI Tech Manager. Updated every run. Last: 2026-06-14.
+> Auto-maintained by the AI Tech Manager. Updated every run. Last: 2026-06-14 (Run 2).
 
 ## What Is Nivo?
 
@@ -29,10 +29,10 @@ docs/
   DESIGN.md         ← design system tokens
 ```
 
-## Core Concepts
+## Core Functions
 
 ### HDFC Salary → Spends Dedup
-When salary lands in `hdfc_sal` and the user self-transfers to `hdfc_spend`, Nivo detects it as an internal transfer via `detectTransfers()` — matching same-amount debit/credit pairs within 2 days across different accounts. User confirms in the Transactions page. Confirmed transfers are excluded from spend calculations.
+`detectTransfers(txns)` — matches same-amount debit/credit pairs within 2 days across different accounts. User confirms in Transactions page. Confirmed transfers excluded from spend calculations.
 
 ### AI Categorisation
 `aiCategorizeFull(merchant, vpa, rules)` returns `{category, confidence, method}`.
@@ -40,9 +40,19 @@ When salary lands in `hdfc_sal` and the user self-transfers to `hdfc_spend`, Niv
 - `method: 'pattern'` — keyword regex (confidence 78–96 depending on specificity)
 - `method: 'fallback'` — unknown merchant (confidence 30)
 
-User corrections via the category dropdown set `catConf=100, catMethod='user'` and teach the rules store.
+User corrections via category dropdown set `catConf=100, catMethod='user'`.
 
-### State
+### Recurring Subscription Detection (v3)
+`detectRecurring(enriched)` — groups non-transfer debits by merchant; flags pairs with ±12% amount and 25–37 day gap as recurring subscriptions. Returns `{merchant, amount, category, lastDate, count, monthlyTotal}[]`. Computed in Shell via `useMemo`, passed as `ctx.recurring`.
+
+### Anomaly Detection (v3)
+`detectAnomalies(txns)` — per merchant, computes median spend; flags txns >2× median as anomalous. Returns `Set<id>`. Passed as `ctx.anomalies`. Shown as `⚠️ high` badge in Transactions list.
+
+### Spend Forecasting
+In `Insights` page — linear model: `projectedMonthEnd = (totalSpend / activeDays) * daysInMonth`. `activeDays` only counts days ≤ today.
+
+## State
+
 ```
 nivo__v         schema version (2)
 nivo_txns       Transaction[]
@@ -54,24 +64,45 @@ nivo_twofa      boolean
 nivo_gmail      boolean
 ```
 
+## Transaction Schema
+
+```ts
+{
+  id: number,
+  date: string,        // "YYYY-MM-DD"
+  account: string,     // ACCOUNTS[].id
+  type: "debit"|"credit",
+  amount: number,      // always ≥ 0, guarded Math.max(0, ...)
+  merchant: string,
+  vpa: string,         // UPI ID or ""
+  source: "gmail"|"excel"|"manual",
+  category: string,    // from CATS
+  catConf: number,     // 0–100 AI confidence
+  catMethod: "rule"|"pattern"|"fallback"|"user",
+  isTransfer: boolean, // set in enriched (confirmed transfer)
+  suggestedTransfer: boolean // matched but not yet confirmed
+}
+```
+
 ## Pages
 
 | Page | Key component | Purpose |
 |---|---|---|
-| Dashboard | `Dashboard` | Overview: stats, area chart, donut, budget bars, recent txns |
-| Transactions | `Transactions` | Full list with search/filter, transfer review, manual add |
+| Dashboard | `Dashboard` | Stats, area chart, donut, budget bars, recent txns, subscriptions card |
+| Transactions | `Transactions` | Full list with search/filter, transfer review, anomaly badges, manual add |
 | Accounts | `Accounts` | Balance cards per account, HDFC dedup explainer |
-| Budgets | `Budgets` | Per-category limit editing + progress bars |
-| Insights | `Insights` | Top merchants, category bars, month-end forecast, stats |
-| Settings | `Settings` | Profile, 2FA toggle, Gmail sync, UPI rules, data export |
+| Budgets | `Budgets` | Over-budget alert banner, per-category limit editing + progress bars |
+| Insights | `Insights` | Month-end forecast, top merchants, category bars, stats |
+| Settings | `Settings` | Profile, 2FA toggle, Gmail sync, UPI rules, data export / reset |
 
 ## Known Issues / Constraints
 
-- Live site title shows "Spendly" (old cache); code title is correct "Nivo". Vercel CDN will invalidate eventually.
-- Charts are SVG-only — no animation yet (roadmap P2).
+- Live site title shows "Spendly" (old Vercel CDN cache); code title is correct "Nivo — Smart Expense Tracker". Will resolve after next Vercel deploy.
+- Charts are SVG-only — no animation yet (roadmap P2 R-09).
 - Account balances are hardcoded seed data — no real bank API.
 - 2FA demo accepts any 6 digits; production requires Supabase Auth MFA wiring.
-- Month-end forecast uses simple daily-average linear model, not seasonality-aware.
+- Seed data extended with May 2026 entries in Run 2; existing users with localStorage v2 will not see them until "Reset demo data" in Settings.
+- Recurring detection requires ≥2 transactions with ~30-day gap — only fires with multi-month history.
 
 ## Conventions
 
@@ -81,3 +112,5 @@ nivo_gmail      boolean
 - Every txn must have: `id, date, account, type, amount, merchant, vpa, source, category, catConf, catMethod`.
 - `amount` is always guarded with `Math.max(0, Number(amount)||0)`.
 - `INR(n)` safely handles `undefined`/`NaN` via `Math.round(n||0)`.
+- `useMemo` for all derived data (byCat, byDay, recurring, anomalies, enriched).
+- One `useMemo` call per derived value — keep Shell's computation section readable.
