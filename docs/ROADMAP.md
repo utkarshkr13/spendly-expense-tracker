@@ -1,6 +1,6 @@
 # Nivo — Product Roadmap
 
-> Maintained by AI Tech Manager. Last updated: 2026-06-14 (Run 2).
+> Maintained by AI Tech Manager. Last updated: 2026-06-14 (Run 4).
 
 ## Shipped ✅
 
@@ -24,6 +24,10 @@
 | **Refined card shadow system** | **v3** | `.card-shadow` + `.btn-press` iOS press state |
 | **Budget over-limit alert banner** | **v3** | In-app banner on Budgets page when any category over limit |
 | **Donut chart hardening** | **v3** | Empty data guard + single-category full-circle fix |
+| **Natural-language query bar** | **v4** | `parseNLQuery()` — 5 intents × 4 periods × all categories; Insights page |
+| **Savings goal coaching** | **v4** | `SavingsGoalCard` — SVG ring + tips + inline-editable goal; Dashboard |
+| **detectTransfers date guard** | **v4** | `isNaN(date.getTime())` prevents NaN in days calc |
+| **Enter-key auth forms** | **v4** | Login, signup, 2FA, UPI rule input all submit on Enter |
 
 ## Backlog
 
@@ -31,18 +35,16 @@
 
 | ID | Feature | Rationale | Effort |
 |---|---|---|---|
+| R-05 | Monthly narrative summary | Template-first: fill {top_category}, {savings_rate} tokens in AI insight card on 1st–5th of month | S |
 | R-03 | Budget alert notifications (browser) | Browser Notification API when approaching/over budget; permission flow | S |
-| R-02 | Anomaly detection (UI refinement) | Add anomaly summary card on Dashboard / Insights; email-style alert | S |
 
 ### P1 — High value
 
 | ID | Feature | Rationale | Effort |
 |---|---|---|---|
-| R-04 | Natural-language query | "How much on food last week?" — parse intent + run filter | M |
-| R-05 | Monthly narrative summary | "Here's your June in one paragraph" — template engine first, then LLM | M |
-| R-06 | Savings goal coaching | Set a goal (e.g., save ₹50k for trip), track progress, suggest cuts | L |
 | R-07 | Dark mode | System-preference aware; `prefers-color-scheme` + CSS vars | M |
 | R-08 | CSV / bank-statement import | Upload HDFC/ICICI CSV → parse → load txns | L |
+| R-02 | Anomaly summary card | Add anomaly count + top anomaly on Dashboard / Insights | S |
 
 ### P2 — Nice to have
 

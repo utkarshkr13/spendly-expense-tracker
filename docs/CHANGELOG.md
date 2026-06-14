@@ -68,28 +68,63 @@ Four improvements shipped in one commit: refined card shadow depth system (desig
 - No regressions detected. `index.html` compiles cleanly (Babel standalone JSX).
 
 ### Design (Task 2) — Refined Card Shadow System (Apple HIG Depth Tokens)
-- Replaced Tailwind `shadow-sm` on `Card` with `.card-shadow` CSS class: `box-shadow: 0 1px 3px rgba(0,0,0,0.05), 0 4px 14px rgba(0,0,0,0.05)`.
-- Hover state: `0 2px 6px rgba(0,0,0,0.08), 0 8px 22px rgba(0,0,0,0.07)` with `transition: box-shadow 0.18s ease`.
-- Added `.btn-press` CSS class: `transition: transform 0.1s ease; :active { transform: scale(0.97) }` — iOS tactile press feedback on all buttons and clickable cards.
-- Applied `btn-press` to: all `<button>` elements, clickable `Card` wrapper, nav items.
-- Updated Bars chart bars to use `transition-all duration-500` for smooth width transitions.
+- Replaced Tailwind `shadow-sm` on `Card` with `.card-shadow` CSS class.
+- Hover state with `transition: box-shadow 0.18s ease`.
+- Added `.btn-press` CSS class: iOS tactile press feedback (`scale(0.97)` on active).
+- Applied `btn-press` to all buttons and clickable cards.
+- Updated Bars chart bars to use `transition-all duration-500`.
 - Recorded in `DESIGN.md`.
 
 ### Feature (Task 3) — Recurring Subscription Detection (R-01 ✅)
 - New `detectRecurring(txns)` function: groups debits by merchant, detects any two payments within ±12% amount and 25–37 day interval → marks as recurring.
-- New "Subscriptions detected" card on Dashboard (bottom): shows each recurring merchant with monthly amount, category, detection count.
-- Shows total monthly subscription cost in header.
-- Seed data extended with May 2026 entries (NETFLIX ₹1299, SWIGGY ₹3100) so recurring detection fires for new users. Existing users: click "Reset demo data" in Settings to see it.
-- Production path documented: Supabase Edge Function with 90-day rolling window + push notification on price change.
+- New "🔁 Subscriptions detected" card on Dashboard.
+- Seed data extended with May 2026 entries for demo.
 
 ### AI Advancement (Task 4) — Anomaly Detection (AI step d) + Recurring (AI step e)
-- New `detectAnomalies(txns)` function: for each merchant with ≥2 transactions, computes median amount; flags any txn >2× median as anomalous. Returns a `Set<id>`.
-- Anomalous transactions now show an `⚠️ high` orange badge in the Transactions list merchant cell.
-- `recurring` and `anomalies` computed with `useMemo` in Shell, passed through `ctx` to all pages.
-- Both functions documented in `AI_PLAN.md` with production upgrade paths.
+- New `detectAnomalies(txns)`: median-based outlier detection, returns `Set<id>`.
+- Anomalous transactions show `⚠️ high` orange badge in Transactions list.
+- Both computed with `useMemo` in Shell, passed via `ctx`.
 
 ### Hardening (Task 5) — Donut Chart
-- Added `const nd = data.filter(d => d.value > 0)` guard — empty data shows "No spending data yet" placeholder instead of broken SVG.
-- Single-category guard: when only one category, sweep uses `frac * 1.9999 * Math.PI` instead of full `2π` — prevents the SVG degenerate arc (start=end point) that rendered as blank.
-- `Math.max(0.001, frac)` guard on each slice to prevent zero-width arcs.
-- Budget page: added over-budget alert banner when any category exceeds limit (in-app notification, no browser API needed).
+- Empty data shows placeholder instead of broken SVG.
+- Single-category full-circle fix: sweep uses `frac * 1.9999 * π`.
+- `Math.max(0.001, frac)` guard on each slice.
+- Budget over-limit alert banner added to Budgets page.
+
+---
+
+## 2026-06-14 — Run 4 (NL query + savings goal coach + date guard + Enter-key auth)
+
+### Summary
+Shipped AI steps (f) and (g): savings goal coaching with SVG progress ring on Dashboard, and natural-language query bar in Insights. Hardened `detectTransfers` with date guard and auth forms with Enter-key submission.
+
+### Audit
+- Live site Vercel title still "Spendly — AI Expense Tracker" (Vercel cache lag) — repo `index.html` is correct, no action needed.
+- All 5 docs present. No regressions.
+- Figma MCP: not available this run — proceeded from Apple HIG.
+
+### Design (Task 2) — Savings Goal Card (iOS Progress Ring)
+- New `SavingsGoalCard` component on Dashboard: SVG circular progress ring (Apple Watch–style).
+- Ring color: emerald when on-track, indigo when behind.
+- Inline-editable goal amount (number input with dashed underline, indigo text — iOS-style).
+- AI Coach badge (emerald). Context-aware coaching tips: 2 lines, different for on-track vs behind.
+- Persisted to `nivo_savingsGoal` in localStorage.
+- Default goal: ₹20,000/month.
+- Recorded in `DESIGN.md` as new component token.
+
+### Feature (Task 3) — Natural Language Query Bar (R-04 ✅) + Savings Goal Coach (R-06 ✅)
+- **NL Query**: `NLQueryBar` component at top of Insights page.
+  - Text input + "Ask" button; Enter key submits.
+  - Parses: period (`this month` / `last 7 days` / `last month` / `today` / `all time`), category (any CATS item), intent (`how much` / `how many` / `biggest` / `average` / `income`).
+  - Shows result inline in violet card beneath input.
+  - Example queries surfaced in placeholder text.
+- **Savings Goal**: `SavingsGoalCard` on Dashboard (described above under Design).
+
+### AI Advancement (Task 4) — Steps (f) and (g)
+- **Step (f) Savings Goal Coaching**: Client-side. `actual = income - spend`. Progress ring. Tips change based on on-track vs behind. Production path: Supabase Edge Function with 3-month history + browser Push Notification on goal achieved.
+- **Step (g) Natural Language Query**: Client-side heuristic parser `parseNLQuery(q, enriched)`. Handles 5 intent types × 4 time periods × all categories = broad coverage. Production path: POST to Supabase Edge Function → Claude Haiku for open-ended queries.
+
+### Hardening (Task 5) — Date Guards + Enter-key Auth
+- `detectTransfers`: Added `isNaN(dDate.getTime())` and `isNaN(cDate.getTime())` guards — silently skips transactions with invalid/missing date strings, preventing `NaN` propagation in the `days` calculation.
+- `AuthScreens`: All three form inputs (name, email, password) now fire `submit()` on Enter key via `onKeyDown={e=>{if(e.key==="Enter")submit();}}`. 2FA input fires `verify()` on Enter.
+- Settings: UPI rule input also fires add-rule on Enter key for consistency.

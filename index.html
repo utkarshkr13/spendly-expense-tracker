@@ -133,21 +133,26 @@ function seedTxns(rules){return SEED.map((r,i)=>{
 });}
 const DEFAULT_BUDGETS={Food:12000,Shopping:10000,Transport:4000,Bills:5000,Entertainment:3000,Health:3000,Travel:10000};
 
+/* HARDENED: isNaN guard on date parsing prevents NaN math on malformed date strings */
 function detectTransfers(txns){
   const matched=new Set(),pairs=[];
   const debits=txns.filter(t=>t.type==="debit"),credits=txns.filter(t=>t.type==="credit");
-  for(const d of debits){if(matched.has(d.id))continue;
-    for(const c of credits){if(matched.has(c.id)||c.account===d.account)continue;
-      const days=Math.abs(new Date(d.date)-new Date(c.date))/864e5;
-      if(d.amount===c.amount&&days<=2){matched.add(d.id);matched.add(c.id);pairs.push({from:d,to:c});break;}}}
+  for(const d of debits){
+    if(matched.has(d.id))continue;
+    const dDate=new Date(d.date);
+    if(isNaN(dDate.getTime()))continue;
+    for(const c of credits){
+      if(matched.has(c.id)||c.account===d.account)continue;
+      const cDate=new Date(c.date);
+      if(isNaN(cDate.getTime()))continue;
+      const days=Math.abs(dDate-cDate)/864e5;
+      if(d.amount===c.amount&&days<=2){matched.add(d.id);matched.add(c.id);pairs.push({from:d,to:c});break;}
+    }
+  }
   return{matched,pairs};
 }
 
 /* ---- (e) Recurring Subscription Detection — AI step (e) ---- */
-// Groups debits by merchant; if any two transactions share ~same amount (±12%)
-// and occur ~28–37 days apart, marks the merchant as a recurring subscription.
-// TODO production: use Supabase Edge Function with sliding-window pattern matcher
-// across 90-day history and send browser Push Notification on price changes.
 function detectRecurring(txns){
   const byMerchant={};
   txns.filter(t=>t.type==="debit"&&t.category!=="Income"&&!t.isTransfer).forEach(t=>{
@@ -172,10 +177,6 @@ function detectRecurring(txns){
 }
 
 /* ---- (d) Anomaly Detection — AI step (d) ---- */
-// Flags transactions where amount > 2× the median spend at that merchant.
-// Returns a Set of transaction IDs marked as anomalous.
-// TODO production: use 90-day rolling window per merchant via Supabase query,
-// apply IQR-based outlier detection, and send an in-app + push alert.
 function detectAnomalies(txns){
   const byMerchant={};
   txns.filter(t=>t.type==="debit").forEach(t=>{
@@ -191,6 +192,58 @@ function detectAnomalies(txns){
     if(median>0&&t.amount>2*median)ids.add(t.id);
   });
   return ids;
+}
+
+/* ---- (g) Natural-Language Query Parser — AI step (g) ---- */
+// Parses plain-English spending questions without an LLM.
+// Extracts: period (this month / last 7 days / today / last month / all time),
+// category (any CATS entry), and intent (total / count / biggest / average / income).
+// TODO production: POST /functions/v1/nlquery -> Claude Haiku for open-ended queries.
+function parseNLQuery(q, enriched){
+  if(!q||!q.trim()) return null;
+  const ql=q.toLowerCase().trim();
+  let txns=enriched;
+  let periodLabel="all time";
+  const today=new Date();
+  if(/last\s+7\s+days|past\s+week|this\s+week/.test(ql)){
+    const cutoff=new Date(today-7*864e5).toISOString().slice(0,10);
+    txns=enriched.filter(t=>t.date>=cutoff);periodLabel="last 7 days";
+  } else if(/this\s+month|current\s+month/.test(ql)){
+    const m=today.toISOString().slice(0,7);
+    txns=enriched.filter(t=>t.date.startsWith(m));periodLabel="this month";
+  } else if(/last\s+month/.test(ql)){
+    const d=new Date(today.getFullYear(),today.getMonth()-1,1);
+    const m=d.toISOString().slice(0,7);
+    txns=enriched.filter(t=>t.date.startsWith(m));periodLabel="last month";
+  } else if(/today/.test(ql)){
+    const m=today.toISOString().slice(0,10);
+    txns=enriched.filter(t=>t.date===m);periodLabel="today";
+  }
+  const foundCat=CATS.find(c=>ql.includes(c.toLowerCase()));
+  const spendTxns=txns.filter(t=>t.type==="debit"&&!t.isTransfer&&t.category!=="Income");
+  const catTxns=foundCat?spendTxns.filter(t=>t.category===foundCat):spendTxns;
+  if(/income|earn|salary/.test(ql)){
+    const inc=txns.filter(t=>t.category==="Income").reduce((s,t)=>s+(t.amount||0),0);
+    return "💰 Total income in "+periodLabel+": "+INR(inc)+".";
+  }
+  if(/how many|count|number/.test(ql)){
+    return "🧾 You had "+catTxns.length+" "+(foundCat||"")+" transaction"+(catTxns.length!==1?"s":"")+" in "+periodLabel+".";
+  }
+  if(/biggest|largest|most expensive|highest/.test(ql)){
+    const top=[...catTxns].sort((a,b)=>b.amount-a.amount)[0];
+    if(!top) return "No "+(foundCat||"")+" transactions found in "+periodLabel+".";
+    return "📌 Biggest "+(foundCat||"")+" expense in "+periodLabel+": "+INR(top.amount)+" at "+top.merchant+" on "+top.date+".";
+  }
+  if(/average|avg|mean/.test(ql)){
+    if(!catTxns.length) return "No "+(foundCat||"")+" transactions in "+periodLabel+".";
+    const avg=catTxns.reduce((s,t)=>s+(t.amount||0),0)/catTxns.length;
+    return "📊 Average "+(foundCat||"")+" transaction in "+periodLabel+": "+INR(avg)+" (over "+catTxns.length+" txns).";
+  }
+  if(/how much|total|spent|spend/.test(ql)){
+    const total=catTxns.reduce((s,t)=>s+(t.amount||0),0);
+    return "💸 You spent "+INR(total)+" on "+(foundCat||"everything")+" in "+periodLabel+" ("+catTxns.length+" transactions).";
+  }
+  return "I couldn't parse that. Try: \"how much on Food this month?\" · \"biggest Shopping expense last 7 days\" · \"how many Transport transactions?\"";
 }
 
 const INR=n=>"₹"+Math.round(n||0).toLocaleString("en-IN");
@@ -223,7 +276,6 @@ function Donut({data}){
   return(<svg viewBox="0 0 180 180" style={{height:200}} className="mx-auto" role="img" aria-label="Spending by category">
     {nd.map((d,i)=>{
       const frac=Math.max(0.001,d.value/total);
-      // Guard: single-item full circle would produce degenerate path — use 99.99%
       const sweep=frac*(single?1.9999:2)*Math.PI;
       const a2=a+sweep;
       const x1=cx+R*Math.cos(a),y1=cy+R*Math.sin(a),x2=cx+R*Math.cos(a2),y2=cy+R*Math.sin(a2);
@@ -244,16 +296,93 @@ function Bars({data}){
 /* ============================ shared UI ============================ */
 const Logo=({size=9})=>(<div className="rounded-xl bg-gradient-to-br from-indigo-600 to-violet-600 flex items-center justify-center text-white font-bold" style={{width:size*4,height:size*4}}>N</div>);
 
-/* Card: now uses refined shadow system + iOS press state on clickable cards */
 function Card({children,className="",onClick}){
   return <div onClick={onClick} className={"rounded-2xl bg-white border border-slate-200 card-shadow "+(onClick?"cursor-pointer btn-press ":"")+className}>{children}</div>;
 }
 
-/* AI confidence badge — shows only when model is uncertain (<80%) */
+/* AI confidence badge */
 function ConfBadge({conf,method}){
   if(!conf||conf>=80||method==='user')return null;
   const color=conf>=65?"text-amber-600 bg-amber-50":"text-rose-500 bg-rose-50";
   return <span className={"text-[10px] px-1.5 py-0.5 rounded-full ml-1 "+color} title={`AI confidence: ${conf}%`}>{conf}%</span>;
+}
+
+/* ---- (f) Savings Goal Coach — AI step (f) ---- */
+// Monthly savings ring with inline-editable goal and context-aware coaching tips.
+// TODO production: POST /functions/v1/savings-coach -> personalized tips based on 3-month history;
+// send browser Push Notification when goal is achieved for the first time each month.
+function SavingsGoalCard({goal,setGoal,income,spend}){
+  const actual=Math.max(0,income-spend);
+  const pct=goal>0?Math.min(100,Math.round(actual/goal*100)):0;
+  const onTrack=goal>0&&actual>=goal;
+  const tips=onTrack
+    ?["You're hitting your savings target this month 🎉","Consider moving surplus to a recurring FD or liquid fund."]
+    :["Reduce Food + Entertainment spend by 10–15% to close the gap.","Set an auto-transfer on salary day — pay yourself first."];
+  const R=36,circ=2*Math.PI*R;
+  const dash=isNaN(pct)?circ:circ*(1-pct/100);
+  return(
+    <Card className="p-5">
+      <div className="flex items-start justify-between mb-4">
+        <div>
+          <h3 className="font-semibold text-sm text-slate-700">Savings Goal</h3>
+          <p className="text-xs text-slate-400 mt-0.5">Monthly target — tap amount to edit</p>
+        </div>
+        <span className="text-xs px-2 py-1 rounded-full bg-emerald-100 text-emerald-700 font-medium">✨ AI Coach</span>
+      </div>
+      <div className="flex items-center gap-5">
+        <svg viewBox="0 0 96 96" className="w-20 h-20 shrink-0" role="img" aria-label={"Savings progress "+pct+"%"}>
+          <circle cx="48" cy="48" r={R} fill="none" stroke="#e2e8f0" strokeWidth="8"/>
+          <circle cx="48" cy="48" r={R} fill="none" stroke={onTrack?"#10b981":"#6366f1"} strokeWidth="8"
+            strokeDasharray={circ} strokeDashoffset={dash}
+            strokeLinecap="round" transform="rotate(-90 48 48)" style={{transition:"stroke-dashoffset 0.5s ease"}}/>
+          <text x="48" y="45" textAnchor="middle" fontSize="11" fontWeight="600" fill="#0f172a">{pct}%</text>
+          <text x="48" y="58" textAnchor="middle" fontSize="8" fill="#94a3b8">saved</text>
+        </svg>
+        <div className="flex-1 min-w-0">
+          <div className="text-2xl font-bold text-slate-900">{INR(actual)}</div>
+          <div className="flex items-center gap-1 text-xs text-slate-400 mb-3">
+            of
+            <input type="number" value={goal} min="0" step="1000"
+              onChange={e=>setGoal(Math.max(0,+e.target.value||0))}
+              className="w-20 text-xs font-medium text-indigo-600 bg-transparent border-b border-dashed border-indigo-300 outline-none text-center mx-1"
+              aria-label="Monthly savings goal in rupees"/>
+            goal
+          </div>
+          <div className="space-y-1">
+            {tips.map((t,i)=><p key={i} className="text-xs text-slate-500 leading-relaxed">{i===0?"💡 ":"→ "}{t}</p>)}
+          </div>
+        </div>
+      </div>
+    </Card>
+  );
+}
+
+/* ---- (g) Natural-Language Query Bar — AI step (g) ---- */
+function NLQueryBar({enriched}){
+  const [q,setQ]=useState("");
+  const [ans,setAns]=useState(null);
+  const run=()=>{if(q.trim())setAns(parseNLQuery(q,enriched));};
+  return(
+    <Card className="p-5">
+      <div className="flex items-center justify-between mb-3">
+        <div>
+          <h3 className="font-semibold text-sm text-slate-700">Ask Nivo</h3>
+          <p className="text-xs text-slate-400 mt-0.5">Natural language spending queries</p>
+        </div>
+        <span className="text-xs px-2 py-1 rounded-full bg-violet-100 text-violet-700 font-medium">✨ AI · step g</span>
+      </div>
+      <div className="flex gap-2">
+        <input value={q} onChange={e=>setQ(e.target.value)}
+          onKeyDown={e=>{if(e.key==="Enter")run();}}
+          placeholder='e.g. "how much on Food this month?" or "biggest Shopping expense last 7 days"'
+          className="flex-1 px-3 py-2.5 text-sm rounded-xl border border-slate-200 outline-none focus:ring-2 focus:ring-violet-200"
+          aria-label="Natural language spending query"/>
+        <button onClick={run} className="px-4 py-2.5 rounded-xl bg-violet-600 text-white text-sm font-medium btn-press">Ask</button>
+      </div>
+      {ans&&<div className="mt-3 px-4 py-3 rounded-xl bg-violet-50 border border-violet-100 text-sm text-violet-900 leading-relaxed">{ans}</div>}
+      <p className="text-xs text-slate-400 mt-2 italic">Client-side parser · Production: Supabase Edge Function → Claude Haiku for open-ended queries.</p>
+    </Card>
+  );
 }
 
 /* ============================ AUTH ============================ */
@@ -284,9 +413,9 @@ function AuthScreens({onAuthed}){
         {mode!=="twofa"?(<div>
           <h1 className="text-xl font-semibold mb-1">{mode==="login"?"Welcome back":"Create your account"}</h1>
           <p className="text-sm text-slate-500 mb-5">{mode==="login"?"Sign in to your Nivo dashboard.":"Track every rupee — clearly."}</p>
-          {mode==="signup"&&<input aria-label="Full name" value={form.name} onChange={e=>setForm({...form,name:e.target.value})} placeholder="Full name" className="w-full mb-3 px-3 py-2.5 text-sm rounded-lg border border-slate-200 focus:ring-2 focus:ring-indigo-200 outline-none"/>}
-          <input aria-label="Email" value={form.email} onChange={e=>setForm({...form,email:e.target.value})} placeholder="Email" className="w-full mb-3 px-3 py-2.5 text-sm rounded-lg border border-slate-200 focus:ring-2 focus:ring-indigo-200 outline-none"/>
-          <input aria-label="Password" type="password" value={form.pass} onChange={e=>setForm({...form,pass:e.target.value})} placeholder="Password" className="w-full mb-3 px-3 py-2.5 text-sm rounded-lg border border-slate-200 focus:ring-2 focus:ring-indigo-200 outline-none"/>
+          {mode==="signup"&&<input aria-label="Full name" value={form.name} onChange={e=>setForm({...form,name:e.target.value})} onKeyDown={e=>{if(e.key==="Enter")submit();}} placeholder="Full name" className="w-full mb-3 px-3 py-2.5 text-sm rounded-lg border border-slate-200 focus:ring-2 focus:ring-indigo-200 outline-none"/>}
+          <input aria-label="Email" value={form.email} onChange={e=>setForm({...form,email:e.target.value})} onKeyDown={e=>{if(e.key==="Enter")submit();}} placeholder="Email" className="w-full mb-3 px-3 py-2.5 text-sm rounded-lg border border-slate-200 focus:ring-2 focus:ring-indigo-200 outline-none"/>
+          <input aria-label="Password" type="password" value={form.pass} onChange={e=>setForm({...form,pass:e.target.value})} onKeyDown={e=>{if(e.key==="Enter")submit();}} placeholder="Password" className="w-full mb-3 px-3 py-2.5 text-sm rounded-lg border border-slate-200 focus:ring-2 focus:ring-indigo-200 outline-none"/>
           {err&&<div role="alert" className="text-xs text-rose-600 mb-3">{err}</div>}
           <button onClick={submit} className="w-full py-2.5 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 btn-press">{mode==="login"?"Sign in":"Create account"}</button>
           <div className="mt-3 text-center text-xs text-slate-500 bg-slate-50 border border-slate-200 rounded-lg py-2">Demo login → ID <button type="button" onClick={()=>setForm({...form,email:"@1234",pass:"@1234"})} className="font-mono font-medium text-indigo-600">@1234</button> · Pass <span className="font-mono font-medium">@1234</span></div>
@@ -298,7 +427,7 @@ function AuthScreens({onAuthed}){
           <div className="text-3xl mb-2">🔐</div>
           <h1 className="text-xl font-semibold mb-1">Two-factor authentication</h1>
           <p className="text-sm text-slate-500 mb-5">Enter the 6-digit code from your authenticator app to continue.</p>
-          <input aria-label="6-digit 2FA code" value={code} onChange={e=>setCode(e.target.value.replace(/\D/g,"").slice(0,6))} placeholder="••••••" maxLength={6} className="w-full mb-3 px-3 py-3 text-center text-2xl tracking-[0.5em] rounded-lg border border-slate-200 focus:ring-2 focus:ring-indigo-200 outline-none"/>
+          <input aria-label="6-digit 2FA code" value={code} onChange={e=>setCode(e.target.value.replace(/\D/g,"").slice(0,6))} onKeyDown={e=>{if(e.key==="Enter")verify();}} placeholder="••••••" maxLength={6} className="w-full mb-3 px-3 py-3 text-center text-2xl tracking-[0.5em] rounded-lg border border-slate-200 focus:ring-2 focus:ring-indigo-200 outline-none"/>
           {err&&<div role="alert" className="text-xs text-rose-600 mb-3">{err}</div>}
           <button onClick={verify} className="w-full py-2.5 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 btn-press">Verify &amp; continue</button>
           <p className="text-xs text-slate-400 mt-4 text-center">Demo build: enter any 6 digits. Production verifies a TOTP (Google Authenticator / Authy) via Supabase Auth MFA.</p>
@@ -319,7 +448,7 @@ function Stat({label,value,sub,tone="indigo",emoji}){
 }
 
 function Dashboard({ctx}){
-  const {totalSpend,naiveSpend,income,dedupSaved,byDay,byCat,pairs,enriched,budgets,recurring}=ctx;
+  const {totalSpend,naiveSpend,income,dedupSaved,byDay,byCat,pairs,enriched,budgets,recurring,savingsGoal,setSavingsGoal}=ctx;
   const netWorth=ACCOUNTS.reduce((s,a)=>s+a.balance,0);
   const topCat=byCat[0];
   const recent=[...enriched].sort((a,b)=>b.date.localeCompare(a.date)).slice(0,6);
@@ -356,6 +485,7 @@ function Dashboard({ctx}){
           </div>))}</div>
       </Card>
     </div>
+    <SavingsGoalCard goal={savingsGoal} setGoal={setSavingsGoal} income={income} spend={totalSpend}/>
     {recurring.length>0&&<Card className="p-5">
       <div className="flex items-center justify-between mb-3">
         <h3 className="font-semibold text-sm text-slate-700">🔁 Subscriptions detected</h3>
@@ -462,12 +592,12 @@ function Accounts({ctx}){
       return(<Card key={a.id} className="p-5">
         <div className="flex items-center justify-between mb-3"><span className="w-9 h-9 rounded-lg flex items-center justify-center text-white text-xs font-bold" style={{background:a.color}}>{a.bank[0]}</span>
           <span className="text-xs px-2 py-0.5 rounded-full bg-slate-100 text-slate-500">{a.role}</span></div>
-        <div className="text-sm text-slate-500">{a.name} ••{a.last4}</div>
+        <div className="text-sm text-slate-500">{a.name} ··{a.last4}</div>
         <div className="text-2xl font-semibold mt-1">{INR(a.balance)}</div>
         <div className="text-xs text-slate-400 mt-2">Spent this month: {INR(spent)}</div>
       </Card>);})}      <Card className="p-5 border-dashed shadow-none flex items-center justify-center text-slate-400 text-sm cursor-pointer hover:bg-slate-50 btn-press">+ Link another account</Card>
     </div>
-    <Card className="p-5 bg-indigo-50 border-indigo-100 shadow-none"><div className="text-sm text-indigo-900"><strong>Why two HDFC accounts?</strong> Nivo knows your salary account funds your spends account. When you move money between them, it's flagged as an internal transfer — never counted as spending. That's why your “real spend” stays accurate even when you shuffle money around.</div></Card>
+    <Card className="p-5 bg-indigo-50 border-indigo-100 shadow-none"><div className="text-sm text-indigo-900"><strong>Why two HDFC accounts?</strong> Nivo knows your salary account funds your spends account. When you move money between them, it's flagged as an internal transfer — never counted as spending. That's why your "real spend" stays accurate even when you shuffle money around.</div></Card>
   </div>);
 }
 
@@ -509,6 +639,7 @@ function Insights({ctx}){
 
   const avgDay=totalSpend/(byDay.length||1);
   return(<div className="space-y-5">
+    <NLQueryBar enriched={enriched}/>
     <Card className="p-5 bg-gradient-to-r from-violet-50 to-indigo-50 border-indigo-100">
       <div className="flex items-start justify-between mb-3">
         <div><h3 className="font-semibold text-slate-800">Month-end Forecast</h3>
@@ -562,7 +693,7 @@ function Settings({ctx,user,onLogout}){
       <button onClick={()=>setGmail(!gmail)} className={"text-sm px-3 py-1.5 rounded-lg btn-press "+(gmail?"bg-slate-100 text-slate-600":"bg-indigo-600 text-white")}>{gmail?"✓ Connected":"Connect Gmail"}</button></div></Card>
     <Card className="p-5"><h3 className="font-semibold mb-1">UPI auto-tag rules</h3><p className="text-sm text-slate-500 mb-3">Tag a UPI ID once — every future payment to it is categorized automatically.</p>
       <div className="flex gap-2 mb-3">
-        <input aria-label="UPI ID" value={newVpa} onChange={e=>setNewVpa(e.target.value)} placeholder="someone@bank" className="flex-1 px-3 py-2 text-sm rounded-lg border border-slate-200"/>
+        <input aria-label="UPI ID" value={newVpa} onChange={e=>setNewVpa(e.target.value)} onKeyDown={e=>{if(e.key==="Enter"&&newVpa.trim()){setRules({...rules,[newVpa.trim()]:newCat});setNewVpa("");}}} placeholder="someone@bank" className="flex-1 px-3 py-2 text-sm rounded-lg border border-slate-200"/>
         <select aria-label="Category" value={newCat} onChange={e=>setNewCat(e.target.value)} className="text-sm rounded-lg border border-slate-200 px-2">{CATS.map(c=><option key={c}>{c}</option>)}</select>
         <button onClick={()=>{if(newVpa.trim()){setRules({...rules,[newVpa.trim()]:newCat});setNewVpa("");}}} className="px-3 py-2 rounded-lg bg-indigo-600 text-white text-sm btn-press">Add</button></div>
       <div className="flex flex-wrap gap-2">{Object.entries(rules).map(([v,c])=>(<span key={v} className="text-xs px-2 py-1 rounded-lg bg-slate-100 flex items-center gap-1.5"><span className="w-2 h-2 rounded-full" style={{background:CAT_COLOR[c]}}></span>{v} → {c}
@@ -586,10 +717,15 @@ function Shell({onLogout}){
   const [txns,setTxns]=useState(()=>LS.get("txns",null)||seedTxns(LS.get("rules",DEFAULT_RULES)));
   const [confirmedArr,setConfirmedArr]=useState(LS.get("confirmed",[]));
   const [budgets,setBudgetsS]=useState(LS.get("budgets",DEFAULT_BUDGETS));
+  const [savingsGoal,setSavingsGoalS]=useState(()=>LS.get("savingsGoal",20000));
   const confirmed=useMemo(()=>new Set(confirmedArr),[confirmedArr]);
-  useEffect(()=>LS.set("txns",txns),[txns]);useEffect(()=>LS.set("rules",rules),[rules]);
-  useEffect(()=>LS.set("confirmed",confirmedArr),[confirmedArr]);useEffect(()=>LS.set("budgets",budgets),[budgets]);
+  useEffect(()=>LS.set("txns",txns),[txns]);
+  useEffect(()=>LS.set("rules",rules),[rules]);
+  useEffect(()=>LS.set("confirmed",confirmedArr),[confirmedArr]);
+  useEffect(()=>LS.set("budgets",budgets),[budgets]);
+  useEffect(()=>LS.set("savingsGoal",savingsGoal),[savingsGoal]);
   const setRules=r=>setRulesS(r);const setBudgets=b=>setBudgetsS(b);
+  const setSavingsGoal=g=>setSavingsGoalS(Math.max(0,+g||0));
   const {matched,pairs}=useMemo(()=>detectTransfers(txns),[txns]);
   const enriched=useMemo(()=>txns.map(t=>({...t,isTransfer:matched.has(t.id)&&confirmed.has(t.id),suggestedTransfer:matched.has(t.id)&&!confirmed.has(t.id)})),[txns,matched,confirmed]);
   const spendTxns=enriched.filter(t=>t.type==="debit"&&!t.isTransfer&&t.category!=="Income");
@@ -600,7 +736,7 @@ function Shell({onLogout}){
   const byDay=useMemo(()=>{const m={};spendTxns.forEach(t=>m[t.date.slice(8)]=(m[t.date.slice(8)]||0)+(t.amount||0));return Object.entries(m).map(([day,value])=>({day,value})).sort((a,b)=>+a.day-+b.day);},[enriched]);
   const recurring=useMemo(()=>detectRecurring(enriched),[enriched]);
   const anomalies=useMemo(()=>detectAnomalies(enriched),[enriched]);
-  const ctx={txns,enriched,totalSpend,naiveSpend,income,dedupSaved:naiveSpend-totalSpend,byCat,byDay,pairs,confirmed,budgets,setBudgets,rules,setRules,recurring,anomalies,
+  const ctx={txns,enriched,totalSpend,naiveSpend,income,dedupSaved:naiveSpend-totalSpend,byCat,byDay,pairs,confirmed,budgets,setBudgets,rules,setRules,recurring,anomalies,savingsGoal,setSavingsGoal,
     confirmPair:p=>setConfirmedArr([...confirmedArr,p.from.id,p.to.id]),
     reCat:(id,cat)=>setTxns(txns.map(t=>t.id===id?{...t,category:cat,catConf:100,catMethod:'user'}:t)),
     addTxn:nt=>{
