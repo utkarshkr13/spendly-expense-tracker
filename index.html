@@ -147,7 +147,7 @@ function Donut({data}){
       const x1=cx+R*Math.cos(a),y1=cy+R*Math.sin(a),x2=cx+R*Math.cos(a2),y2=cy+R*Math.sin(a2);
       const xi1=cx+r*Math.cos(a2),yi1=cy+r*Math.sin(a2),xi2=cx+r*Math.cos(a),yi2=cy+r*Math.sin(a);
       const large=frac>0.5?1:0;a=a2;
-      return <path key={i} d={`M${x1},${y1} A${R},${R} 0 ${large} 1 ${x2},${y2} L${xi1},${yi1} A${r},${r} 0 ${large} 0 ${xi2},${yi2} Z`} fill={CAT_COLOR[d.name]||CAT_COLOR.Other}/>;})}
+      return <path key={i} d={`M${x1},${y1} A${R},${R} 0 ${large} 1 ${x2},${y2} L${xi1},${yi1} A${r},${r} 0 ${large} 0 ${xi2},${yi2} Z`} fill={CAT_COLOR[d.name]||CAT_COLOR.Other}/>;})} 
     <text x="90" y="86" textAnchor="middle" fontSize="11" fill="#64748b">Total</text>
     <text x="90" y="104" textAnchor="middle" fontSize="14" fontWeight="600" fill="#0f172a">{INR(total)}</text>
   </svg>);
@@ -353,7 +353,7 @@ function Accounts({ctx}){
         <div className="text-xs text-slate-400 mt-2">Spent this month: {INR(spent)}</div>
       </Card>);})}      <Card className="p-5 border-dashed shadow-none flex items-center justify-center text-slate-400 text-sm cursor-pointer hover:bg-slate-50">+ Link another account</Card>
     </div>
-    <Card className="p-5 bg-indigo-50 border-indigo-100 shadow-none"><div className="text-sm text-indigo-900"><strong>Why two HDFC accounts?</strong> Nivo knows your salary account funds your spends account. When you move money between them, it's flagged as an internal transfer — never counted as spending. That's why your "real spend" stays accurate even when you shuffle money around.</div></Card>
+    <Card className="p-5 bg-indigo-50 border-indigo-100 shadow-none"><div className="text-sm text-indigo-900"><strong>Why two HDFC accounts?</strong> Nivo knows your salary account funds your spends account. When you move money between them, it's flagged as an internal transfer — never counted as spending. That's why your “real spend” stays accurate even when you shuffle money around.</div></Card>
   </div>);
 }
 
@@ -522,7 +522,23 @@ function Root(){
 }
 ReactDOM.createRoot(document.getElementById("root")).render(<ErrorBoundary><Root/></ErrorBoundary>);
 </script>
-<!-- Vercel Speed Insights — served automatically by Vercel CDN; no-op in local dev -->
+<!--
+  Vercel Speed Insights — vanilla HTML integration per https://vercel.com/docs/speed-insights/quickstart
+  IMPORTANT: Enable in Vercel dashboard (project → Speed Insights) before data appears.
+  window.si shim queues calls made before the async script loads (e.g. custom beforeSend handlers).
+  The /_vercel/speed-insights/script.js path is served automatically by Vercel after enabling.
+  No-op in local dev (404 is silent due to `defer`).
+-->
+<script>window.si = window.si || function(){(window.siq = window.siq || []).push(arguments);};</script>
 <script defer src="/_vercel/speed-insights/script.js"></script>
+<!--
+  Vercel Web Analytics — vanilla HTML integration per https://vercel.com/docs/analytics/quickstart
+  IMPORTANT: Enable in Vercel dashboard (project → Analytics) before data appears.
+  window.va shim queues calls made before the async script loads (e.g. custom event tracking).
+  The /_vercel/insights/script.js path is served automatically by Vercel after enabling.
+  No-op in local dev (404 is silent due to `defer`).
+-->
+<script>window.va = window.va || function(){(window.vaq = window.vaq || []).push(arguments);};</script>
+<script defer src="/_vercel/insights/script.js"></script>
 </body>
 </html>

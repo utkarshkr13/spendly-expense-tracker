@@ -4,6 +4,43 @@ Append-only. Each AI Tech Manager run appends a dated entry.
 
 ---
 
+## 2026-06-14 — Hotfix: Vercel Web Analytics + Speed Insights shim fix
+
+### Summary
+Added Vercel Web Analytics (visitor tracking) and completed Speed Insights integration by adding the missing `window.si` queue shim. Both use vanilla HTML CDN integration — no npm, no bundler required.
+
+### @vercel/analytics — why npm doesn't apply
+`@vercel/analytics/next` requires a Node.js bundler (Next.js/Vite/CRA). Nivo is a single `index.html` with React 18 UMD + Babel standalone. The correct integration for plain HTML is documented at https://vercel.com/docs/analytics/quickstart?framework=html:
+
+```html
+<!-- just before </body> -->
+<script>window.va = window.va || function(){(window.vaq = window.vaq || []).push(arguments);};</script>
+<script defer src="/_vercel/insights/script.js"></script>
+```
+
+### Speed Insights shim fix
+Previous commit was missing the `window.si` queue initializer. Added per docs:
+
+```html
+<script>window.si = window.si || function(){(window.siq = window.siq || []).push(arguments);};</script>
+<script defer src="/_vercel/speed-insights/script.js"></script>
+```
+
+The shim buffers any `window.si()` calls (e.g. `beforeSend` hooks) made before the async script loads.
+
+### What each script tracks
+- **Speed Insights** (`/_vercel/speed-insights/script.js`): Core Web Vitals — LCP, INP, CLS, TTFB, FCP
+- **Web Analytics** (`/_vercel/insights/script.js`): Page views, unique visitors, referrers, countries, devices
+
+### Action required
+Both must be enabled in the Vercel dashboard before data flows:
+1. Project → **Speed Insights** → Enable
+2. Project → **Analytics** → Enable
+
+Vercel auto-routes `/_vercel/speed-insights/*` and `/_vercel/insights/*` after enabling.
+
+---
+
 ## 2026-06-14 — Hotfix: Vercel Speed Insights
 
 ### Summary
