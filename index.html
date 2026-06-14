@@ -51,14 +51,10 @@ const DEFAULT_RULES={"zomato@hdfcbank":"Food","swiggy@ybl":"Food","blinkit@paytm
   "netflix@hdfcbank":"Entertainment","apollo@ybl":"Health"};
 
 /* ---- AI categorisation with confidence scores (step (a) of AI roadmap) ---- */
-// Returns {category, confidence (0-100), method}
-// method: 'rule' = user UPI rule, 'pattern' = keyword heuristic, 'fallback' = unknown
-// TODO: swap the heuristic map for a real embedding/LLM call via Supabase Edge Function
 function aiCategorizeFull(merchant, vpa, rules){
   if(vpa && rules[vpa]) return {category:rules[vpa], confidence:99, method:'rule'};
   const m=(merchant||"").toLowerCase();
   const patterns=[
-    // Exact well-known brand → high confidence
     [/^zomato$|^swiggy$|^dominos$|^blinkit$/,"Food",93],
     [/zomato|swiggy|dominos|cafe|restaurant|blinkit|kitchen|biryani/,"Food",80],
     [/^amazon$|^myntra$|^flipkart$|^nykaa$/,"Shopping",93],
@@ -76,7 +72,6 @@ function aiCategorizeFull(merchant, vpa, rules){
   for(const [re,c,conf] of patterns) if(re.test(m)) return {category:c, confidence:conf, method:'pattern'};
   return {category:"Other", confidence:30, method:'fallback'};
 }
-// Backward-compat wrapper (returns string)
 function aiCategorize(merchant, vpa, rules){
   return aiCategorizeFull(merchant, vpa, rules).category;
 }
@@ -111,7 +106,7 @@ function seedTxns(rules){return SEED.map((r,i)=>{
   const isIncome=type==="credit"&&/salary|interest/i.test(merchant);
   const cat=isIncome?{category:"Income",confidence:98,method:'rule'}:aiCategorizeFull(merchant,vpa,rules);
   return{id:i+1,date,account,type,
-    amount:Math.max(0,Number(amount)||0), // guard NaN
+    amount:Math.max(0,Number(amount)||0),
     merchant,vpa,source,
     category:cat.category,catConf:cat.confidence,catMethod:cat.method};
 });}
@@ -169,7 +164,6 @@ const Logo=({size=9})=>(<div className="rounded-xl bg-gradient-to-br from-indigo
 function Card({children,className="",onClick}){
   return <div onClick={onClick} className={"rounded-2xl bg-white border border-slate-200 shadow-sm "+className}>{children}</div>;
 }
-/* AI confidence badge — shows only when model is uncertain (<80%) */
 function ConfBadge({conf,method}){
   if(!conf||conf>=80||method==='user')return null;
   const color=conf>=65?"text-amber-600 bg-amber-50":"text-rose-500 bg-rose-50";
@@ -383,10 +377,6 @@ function Insights({ctx}){
   const {byCat,byDay,enriched,totalSpend}=ctx;
   const byMerchant=useMemo(()=>{const m={};enriched.filter(t=>t.type==="debit"&&!t.isTransfer&&t.category!=="Income").forEach(t=>m[t.merchant]=(m[t.merchant]||0)+t.amount);
     return Object.entries(m).map(([name,value])=>({name,value})).sort((a,b)=>b.value-a.value).slice(0,6);},[enriched]);
-
-  // Month-end spend forecast (feature shipped this run)
-  // Uses linear daily-average projection; a real LLM edge function would apply
-  // seasonality / spending-velocity curve here instead.
   const today=new Date();
   const dayOfMonth=today.getDate();
   const daysInMonth=new Date(today.getFullYear(),today.getMonth()+1,0).getDate();
@@ -396,7 +386,6 @@ function Insights({ctx}){
   const remainingDays=daysInMonth-dayOfMonth;
   const projectedRemaining=dailyAvg*remainingDays;
   const pctElapsed=Math.round(dayOfMonth/daysInMonth*100);
-
   const avgDay=totalSpend/(byDay.length||1);
   return(<div className="space-y-5">
     <Card className="p-5 bg-gradient-to-r from-violet-50 to-indigo-50 border-indigo-100">
@@ -533,5 +522,7 @@ function Root(){
 }
 ReactDOM.createRoot(document.getElementById("root")).render(<ErrorBoundary><Root/></ErrorBoundary>);
 </script>
+<!-- Vercel Speed Insights — served automatically by Vercel CDN; no-op in local dev -->
+<script defer src="/_vercel/speed-insights/script.js"></script>
 </body>
 </html>

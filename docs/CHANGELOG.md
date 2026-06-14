@@ -4,6 +4,28 @@ Append-only. Each AI Tech Manager run appends a dated entry.
 
 ---
 
+## 2026-06-14 — Hotfix: Vercel Speed Insights
+
+### Summary
+Added Vercel Speed Insights instrumentation via the auto-injected CDN script. No npm, no build step required.
+
+### Why the npm package doesn't apply here
+`@vercel/speed-insights/next` and `@vercel/speed-insights/react` are Node.js ESM packages that require a bundler (Next.js / Vite / CRA). Nivo is a single `index.html` with React 18 UMD + Babel standalone — there is no build pipeline. The correct integration for any Vercel-deployed static site is:
+
+```html
+<!-- placed just before </body> -->
+<script defer src="/_vercel/speed-insights/script.js"></script>
+```
+
+Vercel injects and serves this file at that path for every deployment automatically. In local development the 404 is silent (defer + no error handler). No API key or config needed.
+
+### What this tracks
+- Core Web Vitals: LCP, FID/INP, CLS, TTFB, FCP
+- Visible in the Vercel project dashboard under Analytics → Speed Insights
+- Zero runtime overhead — `defer` ensures it loads after the React app
+
+---
+
 ## 2026-06-14 — Run 1 (initial docs + v2 polish)
 
 ### Summary
